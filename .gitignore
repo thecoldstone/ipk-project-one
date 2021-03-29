@@ -1,0 +1,8 @@
+data
+venv
+file*.txt
+*folder*
+
+osx-x64
+
+.DS_Store*
