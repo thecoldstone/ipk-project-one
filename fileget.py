@@ -1,6 +1,7 @@
 import socket
 import re
 import os
+import argparse
 from filegetparams import FileGetParams
 
 
@@ -81,17 +82,21 @@ class FileGet(FileGetParams):
                 if len(line) == 0:
                     continue
                 data.append(line)
-                # if index is not len(res_content) - 1:
-                #     string = f"{string}\n"
-
-                #     f.write(string.encode('ascii'))
-
-                # f.close()
         else:
             while True:
-                line = socket.recv(1024)
+                res = socket.recv(1024).decode("ascii")
+                res_content = res.split("\r\n")
+
+                if len(res_content) > 0:
+                    for index, line in enumerate(res_content):
+                        if len(line) == 0:
+                            continue
+                        data.append(line)
+                    break
+
                 if not line:
                     break
+
                 data.append(line)
 
         return data
@@ -102,13 +107,13 @@ class FileGet(FileGetParams):
             subpaths = path.split("/")
             cur_path = None
             for index, subpath in enumerate(subpaths):
+                if index is len(subpaths) - 1:
+                    break
+
                 if cur_path is None:
                     cur_path = subpath
                 else:
                     cur_path = f"{cur_path}/{subpath}"
-
-                if index is len(subpaths) - 1:
-                    break
 
                 if os.path.exists(f"{os.getcwd()}/{cur_path}"):
                     continue
@@ -139,47 +144,118 @@ class FileGet(FileGetParams):
 
     def fsp_get_all(self, host: str, port: int):
 
-        index_file_path = self.path[:-1] + "index"
+        index_file_path = self.path[:-2] + "index"
         files = self.fsp_get(host, port, index_file_path, True)
 
         for file in files:
             self.fsp_get(host, port, file)
 
     def get_file(self):
-        # TODO add try/except
         message = f"whereis {self.server}"
+        try:
+            # Connect to server
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                udp.sendto(message.encode("utf-8"), self.address)
+                res = udp.recvfrom(4096)
+                res_state = res[0].decode("utf-8")
 
-        # Connect to server
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.sendto(message.encode("utf-8"), self.address)
-            res = udp.recvfrom(4096)
-            res_state = res[0].decode("utf-8")
+                if re.search("^ERR Syntax", res_state):
+                    raise SyntaxError("Syntax error in the server name")
+                elif re.search("^ERR Not Found", res_state):
+                    raise ValueError(f"Server {self.server} has not been found")
+                elif re.search("^OK", res_state):
+                    # Connect to the subserver
+                    # Do TCP connection via surl
+                    host = res_state[3 : res_state.find(":")]
+                    port = int(res_state[res_state.find(":") + 1 :])
 
-            if re.search("^ERR Syntax", res_state):
-                raise SyntaxError("Syntax error in the server name")
-            elif re.search("^ERR Not Found", res_state):
-                raise ValueError(f"{server} not found")
-            elif re.search("^OK", res_state):
-                # Connect to the subserver
-                # Do TCP connection via surl
-                host = res_state[3 : res_state.find(":")]
-                port = int(res_state[res_state.find(":") + 1 :])
-
-                if os.path.basename(self.path) == "*":
-                    self.fsp_get_all(host, port)
+                    if os.path.basename(self.path) == "*":
+                        self.fsp_get_all(host, port)
+                    else:
+                        self.fsp_get(host, port, self.path)
                 else:
-                    self.fsp_get(host, port, self.path)
-            else:
-                raise ServerError(f"Internal error on server side")
+                    raise ServerError(f"Internal error on server side")
+        except Exception as e:
+            print(f"[ERROR] {e}")
 
 
 if __name__ == "__main__":
-    IP = "127.0.0.1"
-    PORT = 3333
+
+    def init_parser():
+
+        parser = argparse.ArgumentParser(
+            description="Fetching files from the server using UDP/TCP sockets."
+        )
+        parser.add_argument("-n", nargs=1, required=True, help="The server name")
+        parser.add_argument(
+            "-f",
+            nargs=1,
+            required=True,
+            help="SURL to the file on the server.\n\tExample: fsp://foo.bar/file.txt",
+        )
+
+        args = parser.parse_args()
+
+        address = args.n[0].split(":")
+
+        if len(address) != 2:
+            raise ValueError("Incorrect IPV4 address")
+
+        try:
+            address[1] = int(address[1])
+        except:
+            raise ValueError("PORT is not an integer")
+
+        surl = args.f[0]
+
+        if re.search("^fsp:\/\/\w+", surl) is None:
+            raise ValueError("Incorrect SURL")
+
+        res = re.match(r"(^fsp:\/\/)([\w\W][^\/]+)(?:(\/\*)|(\/.*))", surl)
+        if res is None:
+            raise ValueError("Incorrect SURL")
+
+        if res.group(0) != surl:
+            raise ValueError("Incorrect SURL")
+
+        path = None
+        if res.group(3):
+            path = res.group(3)
+
+        if res.group(4):
+            if res.group(4) == "/":
+                raise ValueError("Incorrect SURL")
+            path = res.group(4)
+
+        return {
+            "ip": address[0],
+            "port": address[1],
+            "protocol": res.group(1)[:3],
+            "server": res.group(2),
+            "path": path[1:],
+        }
+
+    try:
+        args = init_parser()
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        exit(1)
+
     AGENT = "xzhuko01"
-    PROTOCOL = "fsp"
-    SERVER = "muj.server.number.one"
-    PATH = "*"
+
+    """Test with with default arguments"""
+    # IP = "127.0.0.1"
+    # PORT = 3333
+    # PROTOCOL = "fsp"
+    # SERVER = "muj.server.number.ones"
+    # PATH = "folder/folder3"
+
+    """Test with with input arguments"""
+    IP = args["ip"]
+    PORT = args["port"]
+    PROTOCOL = args["protocol"]
+    SERVER = args["server"]
+    PATH = args["path"]
 
     client = FileGet(
         ip=IP, port=PORT, agent=AGENT, protocol=PROTOCOL, server=SERVER, path=PATH
