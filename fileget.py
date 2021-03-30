@@ -6,11 +6,15 @@ from filegetparams import FileGetParams
 
 
 class ServerError(Exception):
+    """Server Exception cauesed by server error"""
+
     def __init__(self, message):
         super().__init__(message)
 
 
 class FileGet(FileGetParams):
+    """File Getter Class for fetching files from the server using UDP and TSP protocols"""
+
     def __init__(
         self, ip: str, port: int, server: str, agent: str, path="", protocol="fsp"
     ):
@@ -43,9 +47,24 @@ class FileGet(FileGetParams):
         return self.ip, self.port
 
     def get_body_request(self, path):
+        """Create request body using FSP protocol
+
+        Args:
+            path (str): Path to the file
+
+        Returns:
+            str: Request body using FSP protocl
+        """
         return f"GET {path} FSP/1.0\r\nHostname: {self.server}\r\nAgent: {self.agent}\r\n\r\n"
 
     def write_to_fail(self, path: str, socket: socket, respond: str):
+        """Write a recieved data from the server into the file
+
+        Args:
+            path (str): Path to the file
+            socket (socket): Already opened socket
+            respond (str): Respond from the server
+        """
         with open(path, "wb") as f:
             res_content = respond.split("\r\n")
             # Check if the respond body has got already the requested content
@@ -70,7 +89,16 @@ class FileGet(FileGetParams):
                 f.write(data)
 
     def read_from_file(self, path: str, socket: socket, respond: str):
-        filename = os.path.basename(path)
+        """Read a data from the file
+
+        Args:
+            path (str): Path to the file
+            socket (socket): Already opened socket]
+            respond (str): Respond from the server
+
+        Returns:
+            list: List of lines from the file
+        """
         data = []
         res_content = respond.split("\r\n")
         # Check if the respond body has got already the requested content
@@ -102,6 +130,11 @@ class FileGet(FileGetParams):
         return data
 
     def create_path_to_file(self, path: str):
+        """Create the path to the file
+
+        Args:
+            path (str): The absolute path to the file
+        """
         if re.search("/", path):
             # Create new directory and change current pwd
             subpaths = path.split("/")
@@ -121,7 +154,21 @@ class FileGet(FileGetParams):
                     os.mkdir(f"{os.getcwd()}/{cur_path}")
 
     def fsp_get(self, host: str, port: int, path: str, return_content=False):
+        """Fetch the file from the server
 
+        Args:
+            host (str): IPV4 protocol
+            port (int): PORT
+            path (str): Absolute path to the file
+            return_content (bool, optional): Return the content of the read data. Defaults to False.
+
+        Raises:
+            ValueError: Once file has not been found
+            ServerError: Internal error occured on the server side
+
+        Returns:
+            list: Return the list of the lines from the file if the return_content is set to true
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tsp:
             tsp.settimeout(30)
             tsp.connect((host, port))
@@ -140,10 +187,15 @@ class FileGet(FileGetParams):
             elif re.search("Not Found", res_state):
                 raise ValueError(f"The file {path} has not been found")
             else:
-                raise ServerError(f"Internal error on server side")
+                raise ServerError(f"Internal error on the server side")
 
     def fsp_get_all(self, host: str, port: int):
+        """Get all files from the server using fsp_get method
 
+        Args:
+            host (str): IPV4 protocol
+            port (int): PORT
+        """
         index_file_path = self.path[:-2] + "index"
         files = self.fsp_get(host, port, index_file_path, True)
 
@@ -151,9 +203,16 @@ class FileGet(FileGetParams):
             self.fsp_get(host, port, file)
 
     def get_file(self):
+        """Main function for fetching data from the server.
+
+        Raises:
+            SyntaxError:
+            ValueError: [description]
+            ServerError: [description]
+        """
         message = f"whereis {self.server}"
         try:
-            # Connect to server
+            # Connect to server using UDP protocol
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
                 udp.sendto(message.encode("utf-8"), self.address)
                 res = udp.recvfrom(4096)
@@ -182,7 +241,19 @@ class FileGet(FileGetParams):
 if __name__ == "__main__":
 
     def init_parser():
+        """Argument Parser for FileGet
 
+        Raises:
+            ValueError: Incorrect IPV4 address
+            ValueError: PORT is not an integer
+            ValueError: Incorrect SURL
+            ValueError: Incorrect SURL
+            ValueError: Incorrect SURL
+            ValueError: Incorrect SURL
+
+        Returns:
+            dictionary: Return the dictionary with all needed arguments for FileGet initialization
+        """
         parser = argparse.ArgumentParser(
             description="Fetching files from the server using UDP/TCP sockets."
         )
@@ -211,7 +282,7 @@ if __name__ == "__main__":
         if re.search("^fsp:\/\/\w+", surl) is None:
             raise ValueError("Incorrect SURL")
 
-        res = re.match(r"(^fsp:\/\/)([\w\W][^\/]+)(?:(\/\*)|(\/.*))", surl)
+        res = re.match(r"(^fsp:\/\/)([\w][^\/]+)(?:(\/\*)|(\/.*))", surl)
         if res is None:
             raise ValueError("Incorrect SURL")
 
